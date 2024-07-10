@@ -1,9 +1,11 @@
 'use strict';
 
 import { WebClient } from '@slack/web-api';
-const {createHmac} = await import('node:crypto');
 import { DynamoDBClient, GetItemCommand, PutItemCommand } from "@aws-sdk/client-dynamodb";
+import { CloudWatchEventsClient, PutRuleCommand, PutTargetsCommand } from "@aws-sdk/client-cloudwatch-events";
+
 const dynamoClient = new DynamoDBClient({ region: 'us-east-1' });
+const cweClient = new CloudWatchEventsClient({ region: 'us-east-1' });
 
 export const handler = async (event) => {
 
@@ -20,6 +22,8 @@ export const handler = async (event) => {
 
     //  2. This means that someone wants to change the frequency or group size
     //  In this case, we should update the channelInfo table appropriately
+
+    const channelInfoTableName = 'channel_info_donut'
         
     console.log(JSON.stringify(event.body));
     
@@ -30,8 +34,10 @@ export const handler = async (event) => {
     console.log("body: " + event.body);
 
     // get the team_id
-
     const teamId = body.event.team;
+
+    // get the channel_id (TODO)
+    const channelId = body.event.channel
 
     let botToken;
 
@@ -69,307 +75,151 @@ export const handler = async (event) => {
 
     const slackClient = new WebClient(botToken);
 
-    // check for messages that mention the bot and ask for the current score
     if (body && body.type === 'event_callback' && body.event.type === 'app_mention') {
         console.log('detected app mention');
         
         let messageText = body.event.text;
+        let isInit = False;
         
-        // put it toLower, remove punctuation
-        messageText = messageText.toLowerCase();
 
         let weekPeriod = 2 // number of weeks per donut round
         let dayPeriod = weekPeriod * 7 // number of days per donut round
         let groupSize = 2 
 
+        // TODO
         // check if message contains the word 'init'
         //  if so, check if already in the table, if so, let the user know, quit
         //  else, continue with flow
-        
-        // word process to see if there are the words duration or size
 
-        // the integer that follows directly after 
-
-        // fewer numbers will just mean that we use default values
-
-        
-        let wordArray = messageText.split(" ");
-        
-        if (wordArray.length > 2 && !isNaN(parseInt(wordArray[2], 10))) {
-            if (parseInt(wordArray[2], 10) > 0 && messageText.includes("score")) {
-                // we have a number in the right position, which is positive, and we've been asked for the score
-                
-                // make the request to dynamo db
-                let numPeople = parseInt(wordArray[2], 10);
-                
-                // reqeust here
-                
-                // respond with the leaderboard
-                console.log("SCORE REQUESTED");
-                
+        for (let i = 0; i < words.length; i++) {
+            if (words[i].toLowerCase() === 'init') {
+                isInit = True;
             }
-            
         }
 
-        // send a message telling the user that donuts were successfully created/updated
-        
-    }
-    
-    
-    if (body && body.type === 'event_callback' && body.event.type === 'message') {
-        
-        console.log('detected message sent');
-        
-        if (body.event.bot_id) {
-            
-            console.log("detected a bot message");
-            
-            await slackClient.reactions.add({
-                token: botToken,
-                channel: body.event.channel,
-                name: "robot_face",
-                timestamp: body.event.event_ts
-            });
-            
-            // we want to take no further action, so that our bot does not reply to itself and cause an
-            // infinite loop
-            
-            return {
-                statusCode: 200
-            };
-            
-        }
-        
-        // keep a tally of acronyms for the database
-        
-        let tally = 0;
-        
-        // grab the text
-        let messageText = body.event.text;
-        
-        // put it toLower, remove punctuation
-        messageText = messageText.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-        
-        // split by spaces
-        let wordArray = messageText.split(" ");
-        console.log("word array: " + wordArray.toString());
-        
-        
-        
-        // iterate through list, looking for the csm pattern
-        
-        let reacted = false;
-        
-        for (let i = 0; i < wordArray.length - 2; i++) {
-            if (wordArray[i][0] === 'c' && wordArray[i+1][0] === 's' && wordArray[i+2][0] === 'm')  {
-                
-                if (!reacted) {
-                    
-                    await slackClient.reactions.add({
-                        token: botToken,
-                        channel: body.event.channel,
-                        name: "eyes",
-                        timestamp: body.event.event_ts
-                    });
-                    
-                    tally += 1;
-                    
-                    reacted = true;
-                    
+        if (isInit) {
+            // check if it exists already
+
+            const getParams = {
+                TableName: channelInfoTableName,
+                Key: {
+                    'team_id': { S: teamId },
+                    'channel_id': { S: channelId }
                 }
+            };
+        
+            try {
+                const data = await dynamoClient.send(new GetItemCommand(getParams));
+                if (data.Item) {
+                    console.log('Item already exists:', data.Item);
+                    
+                    // TODO: write message saying that donutbot already exists
                 
-                let quote = ">" + wordArray[i][0].toUpperCase() + wordArray[i].slice(1, wordArray[i].length) + " " + 
-                                  wordArray[i+1][0].toUpperCase() + wordArray[i+1].slice(1, wordArray[i+1].length) + " " + 
-                                  wordArray[i+2][0].toUpperCase() + wordArray[i+2].slice(1, wordArray[i+2].length) + " " +
-                                  "\nnice";
-                
-                await slackClient.chat.postMessage({
-                    token: botToken,
-                    channel: body.event.channel,
-                    text: "nice",
-                    blocks: [{"type": "section", "text": {"type": "mrkdwn", "text": quote}}],
-                    thread_ts: body.event.event_ts
-                });
-                
+                }
+        
+            } catch (error) {
+                console.error('Error:', error);
             }
-            
         }
         
-        // now update table 
-        
-        // check if channel, user is present
-        
-        // const columnName = 'yourColumnName';
-        // const columnValue = 'desiredValue';
-    
-        // const params = {
-        //   TableName: 'YourDynamoDBTableName',
-        //   FilterExpression: `${columnName} =] :value`,
-        //   ExpressionAttributeValues: {
-        //     ':value': columnValue,
-        //   },
-        // };
-    
-        // const result = await dynamodb.scan(params).promise();
-    
-        // console.log('Query Result:', result.Items);
-        
-        
-        // if not, add entry with 0
-        
-        // then, add tally to that entry
-        
-        let thanked = false;
-        
-        if (messageText.includes("good bot") && !thanked) {
-            
-            await slackClient.reactions.add({
-                token: botToken,
-                channel: body.event.channel,
-                name: "heart",
-                timestamp: body.event.event_ts
-            });
-            
-            await slackClient.chat.postMessage({
-                token: botToken,
-                channel: body.event.channel,
-                text: "nOT a pRoBleM",
-                thread_ts: body.event.event_ts
-            });
-            
-            thanked = true;
-            
+        // word process to see if there are the words duration or size, with and integer after it
+
+        const words = inputString.split(/\s+/);
+
+        for (let i = 0; i < words.length; i++) {
+            if (words[i].toLowerCase() === 'duration' && i + 1 < words.length) {
+                // Check if the next word is an integer
+                const nextWord = words[i + 1];
+                const durationInt = parseInt(nextWord, 10);
+                
+                if (!isNaN(durationInt)) {
+                    dayPeriod = durationInt;
+                }
+            }
+
+            if (words[i].toLowerCase() === 'size' && i + 1 < words.length) {
+                // Check if the next word is an integer
+                const nextWord = words[i + 1];
+                const sizeInt = parseInt(nextWord, 10);
+                
+                if (!isNaN(sizeInt)) {
+                    groupSize = sizeInt;
+                }
+            }
         }
-        
-        let scolded = false;
-        
-        if (messageText.includes("bad bot") && !scolded) {
-            
-            await slackClient.reactions.add({
-                token: botToken,
-                channel: body.event.channel,
-                name: "cry",
-                timestamp: body.event.event_ts
-            });
-            
-            await slackClient.chat.postMessage({
-                token: botToken,
-                channel: body.event.channel,
-                text: "uncommon slackbot L",
-                thread_ts: body.event.event_ts
-            });
-            
-            scolded = true;
-            
-        }
-        
-        
-        let dealMentioned = false;
-        
-        if (messageText.includes("deal") && !dealMentioned) {
-            
-            await slackClient.reactions.add({
-                token: botToken,
-                channel: body.event.channel,
-                name: "moneybag",
-                timestamp: body.event.event_ts
-            });
-            
-            await slackClient.chat.postMessage({
-                token: botToken,
-                channel: body.event.channel,
-                blocks: [{"type": "section", "text": {"type": "mrkdwn", "text": ">deal\n looks like someone wants to play Monopoly Deal"}}],
-                thread_ts: body.event.event_ts
-            });
-            
-            dealMentioned = true;
-            
-        }
-        
-        let setMentioned = false;
-        
-        if (messageText.includes("set") && !setMentioned) {
-            
-            await slackClient.reactions.add({
-                token: botToken,
-                channel: body.event.channel,
-                name: "diamonds",
-                timestamp: body.event.event_ts
-            });
-            
-            await slackClient.chat.postMessage({
-                token: botToken,
-                channel: body.event.channel,
-                blocks: [{"type": "section", "text": {"type": "mrkdwn", "text": ">set\n looks like someone wants to play SET"}}],
-                thread_ts: body.event.event_ts
-            });
-            
-            dealMentioned = true;
-            
-        }
-        
-        let coldMentioned = false;
-        
-        if (messageText.includes("cold") && !coldMentioned) {
-            
-            await slackClient.reactions.add({
-                token: botToken,
-                channel: body.event.channel,
-                name: "snowflake",
-                timestamp: body.event.event_ts
-            });
-            
-            await slackClient.chat.postMessage({
-                token: botToken,
-                channel: body.event.channel,
-                text: "IT'S COOOOOLLLLLDDDDD!!!",
-                thread_ts: body.event.event_ts
-            });
-            
-            coldMentioned = true;
-            
-        }
-        
-        let byeMentioned = false;
-        
-        if (messageText.includes("bye") && !coldMentioned) {
-            
-            await slackClient.reactions.add({
-                token: botToken,
-                channel: body.event.channel,
-                name: "wave",
-                timestamp: body.event.event_ts
-            });
-            
-            await slackClient.chat.postMessage({
-                token: botToken,
-                channel: body.event.channel,
-                blocks: [{"type": "section", "text": {"type": "mrkdwn", "text": ">bye\n toodleloo!"}}],
-                thread_ts: body.event.event_ts
-            });
-            
-            byeMentioned = true;
-            
-        }
-        
-        if (messageText.includes('so true') && !wordArray.includes("bestie")) {
-            await slackClient.chat.postMessage({
-                token: botToken,
-                channel: body.event.channel,
-                text: "sooooooo true bestie",
-                thread_ts: body.event.event_ts
-            });
-        }
-        
-        
-        return {
-            statusCode: 200
+
+        // now make the entry into the channelInfo table
+        const item = {
+            team_id: { S: teamId },
+            channel_id: { S: channelId },
+            period: { N: dayPeriod},
+            size: { N: groupSize}
         };
+
+        console.log("created items")
+
+        const params = {
+            TableName: channelInfoTableName,
+            Item: item,
+        };
+
+        try {
+            const command = new PutItemCommand(params);
+            const result = await dynamoClient.send(command);
+            console.log('Item inserted:', result);
+            
+        } catch (error) {
+            console.error('Error inserting item:', error);
+
+            return {
+                statusCode: 500,
+                body: JSON.stringify({ message: 'Error inserting item.', error }),
+            };
+        }
+
+        // make/update eventBridge rule
+
+        const ruleParams = {
+            Name: `schedule-${teamId}-${channelId}`,
+            ScheduleExpression: `cron(0 0 1 */2 *)`, // TODO
+            State: 'ENABLED'
+        };
+        const ruleResponse = await cweClient.send(new PutRuleCommand(ruleParams));
+
+        // Add the Lambda function as a target for the rule
+        const targetParams = {
+            Rule: ruleParams.Name,
+            Targets: [
+                {
+                    Id: `SlackbotTarget-${teamId}`,
+                    Arn: 'arn:aws:lambda:us-west-2:123456789012:function:YourSlackbotLambda',
+                    Input: JSON.stringify({
+                        team_id: teamId,
+                        metadata: metadata
+                    })
+                }
+            ]
+        };
+        await cweClient.send(new PutTargetsCommand(targetParams));
+
+
+
         
-        
+        // send a message telling the user that donuts were successfully created/updated
+
+        let initWord;
+
+        if (isInit) {
+            initWord = 'created';
+        } else {
+            initWord = 'updated';
+        }
+
+        successString = `yay! Your donut group has been ${initWord} with new donuts every ${weekPeriod} weeks and groups size of ${groupSize}`;
+
+
     }
-    
-    console.log('different kind of message sent, probably a mention. No defined action for this yet');
+
     
     return {
         statusCode: 200

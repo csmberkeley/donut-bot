@@ -7,7 +7,7 @@ export const handler = async (event) => {
     // REQS:
     // listen for eventBridge triggers
     // db for team ids to bot tokens
-    // db for teamid, channel, desired frequency, desired group size
+    // db for teamid, channelid, desired frequency, desired group size
     // defaults: once every two weeks, 2
     // make new channel with groups biweekly
     // send reminders in the middle
