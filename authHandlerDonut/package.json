@@ -1,0 +1,16 @@
+{
+  "name": "authhandlerdonut",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.613.0",
+    "@slack/web-api": "^7.3.1"
+  }
+}
