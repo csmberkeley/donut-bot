@@ -6,6 +6,7 @@ const dynamoClient = new DynamoDBClient({ region: 'us-east-1' });
 
 export const handler = async (event) => {
 
+
     console.log("entered function");
 
     // const event_json = JSON.parse(event);
