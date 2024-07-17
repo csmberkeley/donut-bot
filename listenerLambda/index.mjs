@@ -6,6 +6,8 @@ import { CloudWatchEventsClient, PutRuleCommand, PutTargetsCommand } from "@aws-
 
 const dynamoClient = new DynamoDBClient({ region: 'us-east-1' });
 const cweClient = new CloudWatchEventsClient({ region: 'us-east-1' });
+const donutLamdaName = "makeDonutGroups";
+const donutLamdaArn = "arn:aws:lambda:us-east-1:005090878732:function:makeDonutGroups";
 
 export const handler = async (event) => {
 
@@ -88,21 +90,35 @@ export const handler = async (event) => {
                 }
             };
 
-            await dynamoClient.send(new DeleteItemCommand(params));
-            console.log(`Entry removed from DynamoDB for channel: ${channel}`);
+            try {
 
-            // remove from eventbridge as well
+                await dynamoClient.send(new DeleteItemCommand(params));
+                console.log(`Entry removed from DynamoDB for channel: ${channel}`);
 
-            // TODO - need to make the lambda that does the triggering so that we have a target to manipulate
+                // remove from eventbridge as well
 
-            ruleName = `schedule-${teamId}-${channelId}`
 
-            const removeTargetsParams = {
-                Name: ruleName,
-                Ids: []
-            };
-            const ruleResponse = await cweClient.send(new PutRuleCommand(ruleParams));
+                ruleName = `schedule-${teamId}-${channelId}`
 
+                // delete the target associated with the rule
+                const removeTargetsParams = {
+                    Name: ruleName,
+                    Ids: [donutLamdaName]
+                };
+                await cweClient.send(new RemoveTargetsCommand(removeTargetsParams));
+
+                // delete the rule itself
+
+                const deleteRuleParams = {
+                    Name: ruleName
+                };
+        
+                await client.send(new DeleteRuleCommand(deleteRuleParams));
+                console.log(`Rule deleted: ${ruleName}`);
+
+            } catch (error) {
+                console.error(`Error deleting rule or removing from database: ${ruleName}`, error);
+            }
 
         }
     }
@@ -226,6 +242,32 @@ export const handler = async (event) => {
             ScheduleExpression: `rate(${dayPeriod} days)`, 
             State: 'ENABLED'
         };
+
+
+        // try inserting the rule and adding a target
+        try {
+            const putRuleCommand = new PutRuleCommand(ruleParams);
+            const ruleData = await cweClient.send(putRuleCommand);
+            console.log("Successfully created rule:", ruleData.RuleArn);
+
+            // Define the target for the rule (Lambda function)
+            const targetParams = {
+                Rule: ruleParams.Name, // Use the rule name created above
+                Targets: [
+                    {
+                        Id: donutLamdaName, // Unique target ID
+                        Arn: donutLamdaArn // Replace with your Lambda function ARN
+                    }
+                ]
+            };
+
+            // Associate the Lambda function as a target for the rule
+            const putTargetsCommand = new PutTargetsCommand(targetParams);
+            const targetData = await cweClient.send(putTargetsCommand);
+            console.log("Successfully added Lambda function as target:", targetData);
+        } catch (err) {
+            console.error("Error creating rule or adding targets:", err);
+        }
         const ruleResponse = await cweClient.send(new PutRuleCommand(ruleParams));
 
         // Add the Lambda function as a target for the rule
