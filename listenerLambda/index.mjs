@@ -9,7 +9,7 @@ const cweClient = new CloudWatchEventsClient({ region: 'us-east-1' });
 
 export const handler = async (event) => {
 
-    // listen for two things
+    // listen for things
     // 1. donut init message
     // 2. message in established channel
 
@@ -36,7 +36,7 @@ export const handler = async (event) => {
     // get the team_id
     const teamId = body.event.team;
 
-    // get the channel_id (TODO)
+    // get the channel_id
     const channelId = body.event.channel
 
     let botToken;
@@ -71,7 +71,41 @@ export const handler = async (event) => {
         };
     }
 
-    // retrieve the token in this fashion
+    // if bot is removed, we need to remove the rule from the table, and also the eventbridge
+
+    if (body.event && body.event.type === 'member_left_channel') {
+        const { user, channel } = body.event;
+
+        if (user === botUserId) {
+            console.log(`Bot was removed from channel: ${channel}`);
+
+            // Example: Remove entry from DynamoDB
+            const params = {
+                TableName: 'YourTableName',
+                Key: {
+                    team_id: { S: teamId },
+                    channel_id: { S: channelId }
+                }
+            };
+
+            await dynamoClient.send(new DeleteItemCommand(params));
+            console.log(`Entry removed from DynamoDB for channel: ${channel}`);
+
+            // remove from eventbridge as well
+
+            // TODO - need to make the lambda that does the triggering so that we have a target to manipulate
+
+            ruleName = `schedule-${teamId}-${channelId}`
+
+            const removeTargetsParams = {
+                Name: ruleName,
+                Ids: []
+            };
+            const ruleResponse = await cweClient.send(new PutRuleCommand(ruleParams));
+
+
+        }
+    }
 
     const slackClient = new WebClient(botToken);
 
@@ -79,14 +113,14 @@ export const handler = async (event) => {
         console.log('detected app mention');
         
         let messageText = body.event.text;
+        const words = messageText.split(/\s+/);
+
         let isInit = False;
-        
 
         let weekPeriod = 2 // number of weeks per donut round
         let dayPeriod = weekPeriod * 7 // number of days per donut round
         let groupSize = 2 
 
-        // TODO
         // check if message contains the word 'init'
         //  if so, check if already in the table, if so, let the user know, quit
         //  else, continue with flow
@@ -113,7 +147,17 @@ export const handler = async (event) => {
                 if (data.Item) {
                     console.log('Item already exists:', data.Item);
                     
-                    // TODO: write message saying that donutbot already exists
+                    await slackClient.chat.postMessage({
+                        token: botToken,
+                        channel: body.event.channel,
+                        text: "You've already started donuts in this channel!",
+                        thread_ts: body.event.event_ts
+                    });
+
+                    const response = {
+                        statusCode: 200,
+                        body: JSON.stringify("You've already started donuts in this channel!")
+                    };
                 
                 }
         
@@ -123,8 +167,6 @@ export const handler = async (event) => {
         }
         
         // word process to see if there are the words duration or size, with and integer after it
-
-        const words = inputString.split(/\s+/);
 
         for (let i = 0; i < words.length; i++) {
             if (words[i].toLowerCase() === 'duration' && i + 1 < words.length) {
@@ -181,7 +223,7 @@ export const handler = async (event) => {
 
         const ruleParams = {
             Name: `schedule-${teamId}-${channelId}`,
-            ScheduleExpression: `cron(0 0 1 */2 *)`, // TODO
+            ScheduleExpression: `rate(${dayPeriod} days)`, 
             State: 'ENABLED'
         };
         const ruleResponse = await cweClient.send(new PutRuleCommand(ruleParams));
@@ -201,9 +243,6 @@ export const handler = async (event) => {
             ]
         };
         await cweClient.send(new PutTargetsCommand(targetParams));
-
-
-
         
         // send a message telling the user that donuts were successfully created/updated
 
@@ -217,6 +256,14 @@ export const handler = async (event) => {
 
         successString = `yay! Your donut group has been ${initWord} with new donuts every ${weekPeriod} weeks and groups size of ${groupSize}`;
 
+        console.log(successString);
+
+        const response = {
+            statusCode: 200,
+            body: JSON.stringify(successString)
+        };
+
+        return response;
 
     }
 
