@@ -6,7 +6,7 @@ import lodash from 'lodash';
 function createGroups(ids, groupSize) {
 
     // shuffle array
-    const shuffledArray = ids.shuffle(array);
+    const shuffledArray = lodash.shuffle(ids);
 
     // if fewer than groupsize members, just return single group.
     if (groupSize >= shuffledArray.length) {
@@ -14,16 +14,16 @@ function createGroups(ids, groupSize) {
     }
 
     // figure out group arrangement
-    numGroups = shuffledArray.length / groupSize;
-    remainder = shuffledArray.length % groupSize;
+    const numGroups = shuffledArray.length / groupSize;
+    const remainder = shuffledArray.length % groupSize;
 
     // for first remainder groups, add one extra, then for last, add normal amount
 
-    currIdNum = 0;
+    let currIdNum = 0;
     let groups = [];
 
     for (let i = 0; i < remainder; i++) {
-        newGroup = []
+        let newGroup = []
         for (let j = 0; i < groupSize + 1; i++) {
             newGroup.push(ids[currIdNum]);
             currIdNum++;
@@ -33,7 +33,7 @@ function createGroups(ids, groupSize) {
     }
 
     for (let i = remainder; i < numGroups; i++) {
-        newGroup = [];
+        let newGroup = [];
         for (let j = 0; i < groupSize + 1; i++) {
             newGroup.push(ids[currIdNum]);
             currIdNum++;
@@ -48,6 +48,13 @@ function createGroups(ids, groupSize) {
 
 export const handler = async (event) => {
 
+    console.log(JSON.stringify(event.body));
+    
+    console.log("request: " + JSON.stringify(event));
+    
+    const body = null; // for testing
+    // JSON.parse(event.body);
+
     // REQS:
     // listen for eventBridge triggers
     // db for team ids to bot tokens
@@ -56,9 +63,8 @@ export const handler = async (event) => {
     // make new channel with groups biweekly
     // send reminders in the middle
 
-
     // answer slack challenge
-    if (body.type === 'url_verification') {
+    if (body && body.type === 'url_verification') {
         return {
             statusCode: 200,
             body: body.challenge
@@ -103,8 +109,6 @@ export const handler = async (event) => {
             humanMembers.push(memberId);
         }
     }
-
-    const numHumanMembers = humanMembers.length;
     
     let groups = createGroups(humanMembers, groupSize);
     
