@@ -1,13 +1,14 @@
 'use strict';
 
 import { WebClient } from '@slack/web-api';
-import { DynamoDBClient, GetItemCommand, PutItemCommand } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, GetItemCommand, PutItemCommand, DeleteItemCommand } from "@aws-sdk/client-dynamodb";
 import { CloudWatchEventsClient, PutRuleCommand, PutTargetsCommand } from "@aws-sdk/client-cloudwatch-events";
 
 const dynamoClient = new DynamoDBClient({ region: 'us-east-1' });
 const cweClient = new CloudWatchEventsClient({ region: 'us-east-1' });
 const donutLamdaName = "makeDonutGroups";
 const donutLamdaArn = "arn:aws:lambda:us-east-1:005090878732:function:makeDonutGroups";
+const channelInfoTableName = 'channel_info_donut'
 
 export const handler = async (event) => {
 
@@ -24,14 +25,20 @@ export const handler = async (event) => {
 
     //  2. This means that someone wants to change the frequency or group size
     //  In this case, we should update the channelInfo table appropriately
-
-    const channelInfoTableName = 'channel_info_donut'
         
     console.log(JSON.stringify(event.body));
     
     console.log("request: " + JSON.stringify(event));
     
     const body = JSON.parse(event.body);
+
+    // respond to slack challenge
+    if (body && body.type === 'url_verification') {
+        return {
+            statusCode: 200,
+            body: body.challenge
+        };
+    }
         
     console.log("body: " + event.body);
 
@@ -78,6 +85,9 @@ export const handler = async (event) => {
     if (body.event && body.event.type === 'member_left_channel') {
         const { user, channel } = body.event;
 
+        const response = await web.auth.test();
+        const botUserId = response.user_id;
+
         if (user === botUserId) {
             console.log(`Bot was removed from channel: ${channel}`);
 
@@ -97,13 +107,12 @@ export const handler = async (event) => {
 
                 // remove from eventbridge as well
 
-
-                ruleName = `schedule-${teamId}-${channelId}`
+                const ruleName = `schedule-${teamId}-${channelId}`
 
                 // delete the target associated with the rule
                 const removeTargetsParams = {
                     Name: ruleName,
-                    Ids: [donutLamdaName]
+                    Ids: [`SlackbotTarget-${teamId}`]
                 };
                 await cweClient.send(new RemoveTargetsCommand(removeTargetsParams));
 
@@ -113,7 +122,7 @@ export const handler = async (event) => {
                     Name: ruleName
                 };
         
-                await client.send(new DeleteRuleCommand(deleteRuleParams));
+                await cweClient.send(new DeleteRuleCommand(deleteRuleParams));
                 console.log(`Rule deleted: ${ruleName}`);
 
             } catch (error) {
@@ -131,7 +140,7 @@ export const handler = async (event) => {
         let messageText = body.event.text;
         const words = messageText.split(/\s+/);
 
-        let isInit = False;
+        let isInit = false;
 
         let weekPeriod = 2 // number of weeks per donut round
         let dayPeriod = weekPeriod * 7 // number of days per donut round
@@ -143,7 +152,7 @@ export const handler = async (event) => {
 
         for (let i = 0; i < words.length; i++) {
             if (words[i].toLowerCase() === 'init') {
-                isInit = True;
+                isInit = true;
             }
         }
 
@@ -255,7 +264,7 @@ export const handler = async (event) => {
                 Rule: ruleParams.Name, // Use the rule name created above
                 Targets: [
                     {
-                        Id: donutLamdaName, // Unique target ID
+                        Id: `SlackbotTarget-${teamId}`, // Unique target ID
                         Arn: donutLamdaArn // Replace with your Lambda function ARN
                     }
                 ]
@@ -270,21 +279,6 @@ export const handler = async (event) => {
         }
         const ruleResponse = await cweClient.send(new PutRuleCommand(ruleParams));
 
-        // Add the Lambda function as a target for the rule
-        const targetParams = {
-            Rule: ruleParams.Name,
-            Targets: [
-                {
-                    Id: `SlackbotTarget-${teamId}`,
-                    Arn: 'arn:aws:lambda:us-west-2:123456789012:function:YourSlackbotLambda',
-                    Input: JSON.stringify({
-                        team_id: teamId,
-                        metadata: metadata
-                    })
-                }
-            ]
-        };
-        await cweClient.send(new PutTargetsCommand(targetParams));
         
         // send a message telling the user that donuts were successfully created/updated
 
