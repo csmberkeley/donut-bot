@@ -3,9 +3,11 @@
 import { WebClient } from '@slack/web-api';
 import { DynamoDBClient, GetItemCommand, PutItemCommand, DeleteItemCommand } from "@aws-sdk/client-dynamodb";
 import { CloudWatchEventsClient, PutRuleCommand, PutTargetsCommand, RemoveTargetsCommand, DeleteRuleCommand } from "@aws-sdk/client-cloudwatch-events";
+import { LambdaClient, AddPermissionCommand } from "@aws-sdk/client-lambda";
 
 const dynamoClient = new DynamoDBClient({ region: 'us-east-1' });
 const cweClient = new CloudWatchEventsClient({ region: 'us-east-1' });
+const lambdaClient = new LambdaClient({ region: 'us-east-1' });
 const donutLamdaName = "makeDonutGroups";
 const donutLamdaArn = "arn:aws:lambda:us-east-1:005090878732:function:makeDonutGroups";
 const channelInfoTableName = 'channel_info_donut'
@@ -259,9 +261,17 @@ export const handler = async (event) => {
 
         // make/update eventBridge rule
 
+        // const ruleParams = {
+        //     Name: `schedule-${teamId}-${channelId}`,
+        //     ScheduleExpression: `rate(${dayPeriod} days)`, 
+        //     State: 'ENABLED'
+        // };
+
+        // for debug purposes, trigger frequently!
+
         const ruleParams = {
             Name: `schedule-${teamId}-${channelId}`,
-            ScheduleExpression: `rate(${dayPeriod} days)`, 
+            ScheduleExpression: 'rate(3 minutes)', 
             State: 'ENABLED'
         };
 
@@ -302,6 +312,27 @@ export const handler = async (event) => {
         }
         const ruleResponse = await cweClient.send(new PutRuleCommand(ruleParams));
 
+        console.log("Rule:", ruleResponse);
+        console.log("Rule ARN:", ruleResponse.RuleArn);
+
+        const ruleArn = ruleResponse.RuleArn
+        // grant the lambda the permission to be called by the eventbridge event
+        const addPermsParams = {
+            Action: "lambda:InvokeFunction",
+            FunctionName: donutLamdaName,
+            Principal: "events.amazonaws.com",
+            StatementId: "AllowEventBridgeInvoke",
+            SourceArn: ruleArn, // This allows any EventBridge rule to invoke the function
+        };
+    
+        const command = new AddPermissionCommand(addPermsParams);
+    
+        try {
+            const data = await lambdaClient.send(command);
+            console.log("Permission added:", data);
+        } catch (err) {
+            console.error("Error adding permission:", err);
+        }
         
         // send a message telling the user that donuts were successfully created/updated
 
