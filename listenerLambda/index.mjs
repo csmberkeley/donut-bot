@@ -2,7 +2,7 @@
 
 import { WebClient } from '@slack/web-api';
 import { DynamoDBClient, GetItemCommand, PutItemCommand, DeleteItemCommand } from "@aws-sdk/client-dynamodb";
-import { CloudWatchEventsClient, PutRuleCommand, PutTargetsCommand } from "@aws-sdk/client-cloudwatch-events";
+import { CloudWatchEventsClient, PutRuleCommand, PutTargetsCommand, RemoveTargetsCommand, DeleteRuleCommand } from "@aws-sdk/client-cloudwatch-events";
 
 const dynamoClient = new DynamoDBClient({ region: 'us-east-1' });
 const cweClient = new CloudWatchEventsClient({ region: 'us-east-1' });
@@ -26,8 +26,6 @@ export const handler = async (event) => {
     //  2. This means that someone wants to change the frequency or group size
     //  In this case, we should update the channelInfo table appropriately
         
-    console.log(JSON.stringify(event.body));
-    
     console.log("request: " + JSON.stringify(event));
     
     const body = JSON.parse(event.body);
@@ -39,14 +37,21 @@ export const handler = async (event) => {
             body: body.challenge
         };
     }
-        
-    console.log("body: " + event.body);
 
-    // get the team_id
-    const teamId = body.event.team;
+    let teamId;
+    let channelId;
 
-    // get the channel_id
-    const channelId = body.event.channel
+    if (body.event.type === 'channel_left' ||  body.event.type === 'group_left') {
+        teamId = body.team_id;
+        channelId = body.event.channel;
+    } else if (body.event && body.event.team && body.event.channel) {
+        teamId = body.event.team;
+        channelId = body.event.channel;
+    } else {
+        console.log("team_id or channel id not found in request");
+    }
+ 
+    console.log("body: " + event.body);    
 
     let botToken;
 
@@ -82,53 +87,48 @@ export const handler = async (event) => {
 
     // if bot is removed, we need to remove the rule from the table, and also the eventbridge
 
-    if (body.event && body.event.type === 'member_left_channel') {
-        const { user, channel } = body.event;
+    if (body.event && body.event.type === 'channel_left' ||  body.event.type === 'group_left') {
+        console.log('bye!');
 
-        const response = await web.auth.test();
-        const botUserId = response.user_id;
-
-        if (user === botUserId) {
-            console.log(`Bot was removed from channel: ${channel}`);
-
-            // Example: Remove entry from DynamoDB
-            const params = {
-                TableName: 'YourTableName',
-                Key: {
-                    team_id: { S: teamId },
-                    channel_id: { S: channelId }
-                }
-            };
-
-            try {
-
-                await dynamoClient.send(new DeleteItemCommand(params));
-                console.log(`Entry removed from DynamoDB for channel: ${channel}`);
-
-                // remove from eventbridge as well
-
-                const ruleName = `schedule-${teamId}-${channelId}`
-
-                // delete the target associated with the rule
-                const removeTargetsParams = {
-                    Name: ruleName,
-                    Ids: [`SlackbotTarget-${teamId}`]
-                };
-                await cweClient.send(new RemoveTargetsCommand(removeTargetsParams));
-
-                // delete the rule itself
-
-                const deleteRuleParams = {
-                    Name: ruleName
-                };
-        
-                await cweClient.send(new DeleteRuleCommand(deleteRuleParams));
-                console.log(`Rule deleted: ${ruleName}`);
-
-            } catch (error) {
-                console.error(`Error deleting rule or removing from database: ${ruleName}`, error);
+        // Remove entry from DynamoDB
+        const params = {
+            TableName: channelInfoTableName,
+            Key: {
+                team_id: { S: teamId },
+                channel_id: { S: channelId }
             }
+        };
 
+        const ruleName = `schedule-${teamId}-${channelId}`;
+
+        console.log(`ruleName: ${ruleName}`);
+        console.log(`SlackbotTarget-${teamId}`);
+
+        try {
+
+            await dynamoClient.send(new DeleteItemCommand(params));
+            console.log(`Entry removed from DynamoDB for channel: ${channelId}`);
+
+            // delete the target associated with the rule
+            const removeTargetsParams = {
+                Rule: ruleName,
+                Ids: [`SlackbotTarget-${teamId}`]
+            };
+            await cweClient.send(new RemoveTargetsCommand(removeTargetsParams));
+
+            console.log(`target removed for: ${teamId}`);
+
+            // delete the rule itself
+
+            const deleteRuleParams = {
+                Name: ruleName
+            };
+    
+            await cweClient.send(new DeleteRuleCommand(deleteRuleParams));
+            console.log(`Rule deleted: ${ruleName}`);
+
+        } catch (error) {
+            console.error(`Error deleting rule or removing from database: ${ruleName}`, error);
         }
     }
 
@@ -183,6 +183,8 @@ export const handler = async (event) => {
                         statusCode: 200,
                         body: JSON.stringify("You've already started donuts in this channel!")
                     };
+
+                    return response;
                 
                 }
         
@@ -193,6 +195,8 @@ export const handler = async (event) => {
         
         // word process to see if there are the words duration or size, with and integer after it
 
+        let modified = false;
+
         for (let i = 0; i < words.length; i++) {
             if (words[i].toLowerCase() === 'duration' && i + 1 < words.length) {
                 // Check if the next word is an integer
@@ -201,6 +205,7 @@ export const handler = async (event) => {
                 
                 if (!isNaN(durationInt)) {
                     dayPeriod = durationInt;
+                    modified = true;
                 }
             }
 
@@ -211,16 +216,24 @@ export const handler = async (event) => {
                 
                 if (!isNaN(sizeInt)) {
                     groupSize = sizeInt;
+                    modified = true;
                 }
             }
+        }
+
+        if (!isInit && !modified) {
+            return {
+                statusCode: 200,
+                body: JSON.stringify({ message: 'App mentioned, no action necessary'}),
+            };
         }
 
         // now make the entry into the channelInfo table
         const item = {
             team_id: { S: teamId },
             channel_id: { S: channelId },
-            period: { N: dayPeriod},
-            size: { N: groupSize}
+            period: { N: dayPeriod.toString()},
+            size: { N: groupSize.toString()}
         };
 
         console.log("created items")
@@ -257,7 +270,16 @@ export const handler = async (event) => {
         try {
             const putRuleCommand = new PutRuleCommand(ruleParams);
             const ruleData = await cweClient.send(putRuleCommand);
-            console.log("Successfully created rule:", ruleData.RuleArn);
+            console.log("Successfully created rule:", ruleParams.Name);
+            console.log(`target id: SlackbotTarget-${teamId}`);
+
+            // define the data that needs to be passed to the lambda
+            const customInput = {
+                teamId: teamId,
+                channelId: channelId,
+                botToken: botToken,
+                groupSize: groupSize
+            }
 
             // Define the target for the rule (Lambda function)
             const targetParams = {
@@ -265,7 +287,8 @@ export const handler = async (event) => {
                 Targets: [
                     {
                         Id: `SlackbotTarget-${teamId}`, // Unique target ID
-                        Arn: donutLamdaArn // Replace with your Lambda function ARN
+                        Arn: donutLamdaArn, // Replace with your Lambda function ARN
+                        Input: JSON.stringify(customInput)
                     }
                 ]
             };
@@ -290,7 +313,7 @@ export const handler = async (event) => {
             initWord = 'updated';
         }
 
-        successString = `yay! Your donut group has been ${initWord} with new donuts every ${weekPeriod} weeks and groups size of ${groupSize}`;
+        const successString = `yay! Your donut group has been ${initWord} with new donuts every ${weekPeriod} weeks and groups size of ${groupSize}`;
 
         console.log(successString);
 
