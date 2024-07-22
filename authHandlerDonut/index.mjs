@@ -48,7 +48,7 @@ export const handler = async (event) => {
     
     // store in dynamo db
 
-    const tableName = 'team_tokens';
+    const tableName = 'team_tokens_donut';
     const item = {
         team_id: { S: team_id },
         token: { S: token }

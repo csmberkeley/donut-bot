@@ -3,7 +3,7 @@
 import { WebClient } from '@slack/web-api';
 import { DynamoDBClient, GetItemCommand, PutItemCommand, DeleteItemCommand } from "@aws-sdk/client-dynamodb";
 import { CloudWatchEventsClient, PutRuleCommand, PutTargetsCommand, RemoveTargetsCommand, DeleteRuleCommand } from "@aws-sdk/client-cloudwatch-events";
-import { LambdaClient, AddPermissionCommand } from "@aws-sdk/client-lambda";
+import { LambdaClient, AddPermissionCommand, RemovePermissionCommand } from "@aws-sdk/client-lambda";
 
 const dynamoClient = new DynamoDBClient({ region: 'us-east-1' });
 const cweClient = new CloudWatchEventsClient({ region: 'us-east-1' });
@@ -125,6 +125,25 @@ export const handler = async (event) => {
 
         } catch (error) {
             console.error(`Error deleting rule or removing from database: ${ruleName}`, error);
+        }
+
+        // remove permission for the lammbda to add rules
+
+        // Create the parameters for RemovePermissionCommand
+        const removePermsParams = {
+            FunctionName: donutLamdaName,
+            StatementId: `allowInvoke-${teamId}-${channelId}`,
+        };
+
+        // Create the command
+        const command = new RemovePermissionCommand(removePermsParams);
+
+        try {
+            // Send the command to remove the permission
+            const response = await lambdaClient.send(command);
+            console.log("Permission removed successfully:", response);
+        } catch (error) {
+            console.error("Error removing permission:", error);
         }
     }
 
@@ -313,7 +332,7 @@ export const handler = async (event) => {
             Action: "lambda:InvokeFunction",
             FunctionName: donutLamdaName,
             Principal: "events.amazonaws.com",
-            StatementId: "AllowEventBridgeInvoke",
+            StatementId: `allowInvoke-${teamId}-${channelId}`,
             SourceArn: ruleArn, // This allows any EventBridge rule to invoke the function
         };
     
