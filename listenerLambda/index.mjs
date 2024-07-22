@@ -57,8 +57,6 @@ export const handler = async (event) => {
 
     let botToken;
 
-    console.log("team_id: " + teamId);
-
     try {
         // Query DynamoDB to get the bot token for the given team ID
         const getTokenParams = {
@@ -90,7 +88,6 @@ export const handler = async (event) => {
     // if bot is removed, we need to remove the rule from the table, and also the eventbridge
 
     if (body.event && body.event.type === 'channel_left' ||  body.event.type === 'group_left') {
-        console.log('bye!');
 
         // Remove entry from DynamoDB
         const params = {
@@ -102,9 +99,6 @@ export const handler = async (event) => {
         };
 
         const ruleName = `schedule-${teamId}-${channelId}`;
-
-        console.log(`ruleName: ${ruleName}`);
-        console.log(`SlackbotTarget-${teamId}`);
 
         try {
 
@@ -137,7 +131,6 @@ export const handler = async (event) => {
     const slackClient = new WebClient(botToken);
 
     if (body && body.type === 'event_callback' && body.event.type === 'app_mention') {
-        console.log('detected app mention');
         
         let messageText = body.event.text;
         const words = messageText.split(/\s+/);
@@ -281,7 +274,6 @@ export const handler = async (event) => {
             const putRuleCommand = new PutRuleCommand(ruleParams);
             const ruleData = await cweClient.send(putRuleCommand);
             console.log("Successfully created rule:", ruleParams.Name);
-            console.log(`target id: SlackbotTarget-${teamId}`);
 
             // define the data that needs to be passed to the lambda
             const customInput = {
