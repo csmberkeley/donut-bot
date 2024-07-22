@@ -52,7 +52,11 @@ export const handler = async (event) => {
     
     console.log("request: " + JSON.stringify(event));
     
-    const body = null; // for testing
+    let body = null;
+
+    if (event.body) {
+        body = JSON.parse(event.body);
+    }
     // JSON.parse(event.body);
 
     // REQS:
@@ -72,15 +76,14 @@ export const handler = async (event) => {
     }
 
     // TODO: retrieve the bot token by using the team id from the eventBridge trigger
-    const slackClient = new WebClient(process.env.BOT_TOKEN);
+    let channelId = event.channelId; 
+    let groupSize = event.groupSize;
+    const botToken = event.botToken;
+    const slackClient = new WebClient(botToken);
 
     // get channel eventBridge trigger
     // then get all people in channel(s)
     // let channels = ["C02F0M910UQ"];
-    let channelId = 'C05TPU5H002'; // for testing
-    
-    // TODO: make this refer to the table
-    let groupSize = 2;
     
     // get the bot's own user id
     // let selfInfo = await slackClient.auth.test();
@@ -126,7 +129,7 @@ export const handler = async (event) => {
     
     // send an intro message
     // let intro_message = "test test";
-    let intro_message = "Hello csm! I'm the slackbot doing donuts - if you're reading this, it means I've matched y'all up! While we're testing this out, feel free to complete this donut in addition to the original one! If you have any feedback about how the bot works, feel free to drop viraj a DM! ";
+    let intro_message = "Hello csm! I'm the slackbot doing donuts - if you're reading this, it means I've matched y'all up! If you have any feedback about how the bot works, feel free to drop viraj a DM! ";
     
     for (let i = 0; i < group_ids.length; i++) {
         console.log("other side");
