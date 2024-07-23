@@ -11,6 +11,8 @@ const lambdaClient = new LambdaClient({ region: 'us-east-1' });
 const donutLamdaName = "makeDonutGroups";
 const donutLamdaArn = "arn:aws:lambda:us-east-1:005090878732:function:makeDonutGroups";
 const channelInfoTableName = 'channel_info_donut'
+const defaultWeekPeriod = 2;
+const defaultGroupSize = 2;
 
 export const handler = async (event) => {
 
@@ -156,9 +158,8 @@ export const handler = async (event) => {
 
         let isInit = false;
 
-        let weekPeriod = 2 // number of weeks per donut round
-        let dayPeriod = weekPeriod * 7 // number of days per donut round
-        let groupSize = 2 
+        let dayPeriod = defaultWeekPeriod * 7; // number of days per donut round
+        let groupSize = defaultGroupSize;
 
         // check if message contains the word 'init'
         //  if so, check if already in the table, if so, let the user know, quit
@@ -218,7 +219,7 @@ export const handler = async (event) => {
                 const durationInt = parseInt(nextWord, 10);
                 
                 if (!isNaN(durationInt)) {
-                    dayPeriod = durationInt;
+                    dayPeriod = durationInt * 7;
                     modified = true;
                 }
             }
@@ -283,7 +284,7 @@ export const handler = async (event) => {
 
         const ruleParams = {
             Name: `schedule-${teamId}-${channelId}`,
-            ScheduleExpression: 'rate(3 minutes)', 
+            ScheduleExpression: 'rate(12 hours)', 
             State: 'ENABLED'
         };
 
@@ -355,7 +356,7 @@ export const handler = async (event) => {
             initWord = 'updated';
         }
 
-        const successString = `yay! Your donut group has been ${initWord} with new donuts every ${weekPeriod} weeks and groups size of ${groupSize}`;
+        const successString = `yay! Your donut group has been ${initWord} with new donuts every ${dayPeriod} days and groups size of ${groupSize}`;
 
         console.log(successString);
 
@@ -368,7 +369,6 @@ export const handler = async (event) => {
 
     }
 
-    
     return {
         statusCode: 200
     };
